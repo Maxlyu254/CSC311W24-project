@@ -111,6 +111,7 @@ def train_without_lamb(model, lr, lamb, train_data, zero_train_data, valid_data,
     valid_losses = []
 
     for epoch in range(0, num_epoch):
+        # Training steps
         train_loss = 0.
         
         for user_id in range(num_student):
@@ -121,7 +122,7 @@ def train_without_lamb(model, lr, lamb, train_data, zero_train_data, valid_data,
             output = model(inputs)
 
             # Mask the target to only compute the gradient of valid entries.
-            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
+            nan_mask = np.isnan(train_data[user_id].numpy())
             target[0][nan_mask] = output[0][nan_mask]
 
             loss = torch.sum((output - target) ** 2.)
@@ -130,8 +131,10 @@ def train_without_lamb(model, lr, lamb, train_data, zero_train_data, valid_data,
             train_loss += loss.item()
             optimizer.step()
         
+        # Validation Steps
         valid_acc, valid_loss = evaluate(model, zero_train_data, valid_data) 
 
+         # Update training and validation losses for plotting
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)
 
@@ -189,7 +192,7 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
             output = model(inputs)
 
             # Mask the target to only compute the gradient of valid entries.
-            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
+            nan_mask = np.isnan(train_data[user_id].numpy())
             target[0][nan_mask] = output[0][nan_mask]
 
             loss = torch.sum((output - target) ** 2.) + (lamb / 2) * model.get_weight_norm()
@@ -285,44 +288,50 @@ def main():
     #####################################################################
     # Set model hyperparameters.
 #------ Part(b) and Part(c)
-    k = [10, 50, 100, 200, 500]
-    # If 8 consecutive accuracies are not as high as the previous one, then stop the gradient descent.
-    # Set optimization hyperparameters.
-    lr = [0.01, 0.03, 0.05]
+     # Set model hyperparameters.
+    k_values = [10, 50, 100, 200, 500]  # Potential k values
+    learning_rates = [0.01, 0.03, 0.05]  # Potential learning rates
     num_epoch = 100
-    lamb = None
+    lamb = None  # Regularization parameter, not used in this optimization
 
     best_overall_val_acc = 0
     best_hyperparameters = {}
     best_train_losses = None
     best_valid_losses = None
-    # Loop for each k value
-    for each_k in k:
-        # Loop for each learning rate
-        for each_lr in lr:
-                # Instantiated models
-            model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=each_k)
-                    # Training models
-            train_losses, valid_losses, best_epoch, best_val_acc = train_without_lamb(model, each_lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
-                # Find the maximum acc
-            if best_val_acc > best_overall_val_acc:
-                best_overall_val_acc = best_val_acc
 
-                best_hyperparameters = {
-                            'k': each_k,
-                            'learning_rate': each_lr,
-                            'lambda': lamb,
-                            'best_epoch': best_epoch, 
-                            'best_overall_train_acc': best_overall_val_acc
-                        }
-                best_train_losses = train_losses
-                best_valid_losses = valid_losses
+    # Starting with a baseline k and learning rate
+    baseline_k = 100  # Example baseline
+    baseline_lr = 0.01  # Example baseline
 
-    best_epoch = best_hyperparameters['best_epoch']
-    print("report for part b and c")
-    print("Best Hyperparameters:")
+    # Neighboring Hyperparameter Optimization for k
+    for k in [baseline_k // 2, baseline_k, baseline_k * 2]:  # Exploring neighbors
+        if k not in k_values: continue  # Skip if the new k value is not in the predefined list
+        # Keeping the learning rate constant at baseline during k optimization
+        model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=k)
+        train_losses, valid_losses, best_epoch, best_val_acc = train_without_lamb(model, baseline_lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+        if best_val_acc > best_overall_val_acc:
+            best_overall_val_acc = best_val_acc
+            best_hyperparameters = {'k': k, 'learning_rate': baseline_lr, 'lambda': lamb, 'best_epoch': best_epoch}
+            best_train_losses = train_losses
+            best_valid_losses = valid_losses
+
+    # Using the best k found, now optimize learning rate
+    best_k = best_hyperparameters['k']
+    for lr in [baseline_lr / 2, baseline_lr, baseline_lr * 2]:  # Exploring neighbors
+        if lr not in learning_rates: continue  # Skip if the new lr value is not in the predefined list
+        model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=best_k)
+        train_losses, valid_losses, best_epoch, best_val_acc = train_without_lamb(model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+        if best_val_acc > best_overall_val_acc:
+            best_overall_val_acc = best_val_acc
+            best_hyperparameters.update({'learning_rate': lr, 'best_epoch': best_epoch})  # Update only learning rate and epoch
+            best_train_losses = train_losses
+            best_valid_losses = valid_losses
+
+    # Report best hyperparameters found
+    print("Best Hyperparameters found through Neighboring Optimization:")
     for key, value in best_hyperparameters.items():
         print(f"{key}: {value}")
+
 
     model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=best_hyperparameters['k'])
     train_without_lamb(model, best_hyperparameters['learning_rate'], best_hyperparameters['lambda'], train_matrix, zero_train_matrix, valid_data, best_epoch)
