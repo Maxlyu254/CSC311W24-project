@@ -29,7 +29,7 @@ def load_data(base_path="../data"):
 
     zero_train_matrix = train_matrix.copy()
     # Fill in the missing entries to 0.
-    zero_train_matrix[np.isnan(train_matrix)] = 0
+    zero_train_matrix[np.isnan(train_matrix)] = 0.5 ######### Part B: changed NaN handling to value of 0.5 #### No significant improvement over test accuracy
     # Change to Float Tensor for PyTorch.
     zero_train_matrix = torch.FloatTensor(zero_train_matrix)
     train_matrix = torch.FloatTensor(train_matrix)
@@ -121,7 +121,7 @@ def train_without_lamb(model, lr, lamb, train_data, zero_train_data, valid_data,
             output = model(inputs)
 
             # Mask the target to only compute the gradient of valid entries.
-            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
+            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())[0]
             target[0][nan_mask] = output[0][nan_mask]
 
             loss = torch.sum((output - target) ** 2.)
@@ -189,7 +189,7 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
             output = model(inputs)
 
             # Mask the target to only compute the gradient of valid entries.
-            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
+            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())[0]
             target[0][nan_mask] = output[0][nan_mask]
 
             loss = torch.sum((output - target) ** 2.) + (lamb / 2) * model.get_weight_norm()
