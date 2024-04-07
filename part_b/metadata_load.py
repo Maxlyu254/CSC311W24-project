@@ -5,16 +5,15 @@ import csv
 import os
 
 def load_csv_to_matrix(file_path):
-    data = []
-    with open(file_path, 'r') as file:
-        csv_reader = csv.reader(file)
-        csv_reader.__next__()
-        for row in csv_reader:
-            data.append(row)
-    return np.array(data)
+  data = []
+  with open(file_path, 'r') as file:
+    csv_reader = csv.reader(file)
+    csv_reader.__next__()
+    for row in csv_reader:
+      data.append(row)
+  return np.array(data)
 
 def transform_metadata(metadata):
-
   row_num = metadata.shape[0]
   transformed_meta = [None] * row_num
   date_origin = datetime.strptime("2024-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
@@ -70,5 +69,5 @@ if __name__ == "__main__":
   print(student_metadata.shape)
 
   tsfmd_meta = transform_metadata(student_metadata)
-  print("transformed metadata: ")
+  print("transformed metadata:")
   print(tsfmd_meta)
