@@ -9,7 +9,14 @@ import torch.utils.data
 
 import numpy as np
 import torch
+import time
 
+
+# These are a list of switches to turn on/off optimization in part B.
+DO_LOAD_METADATA = True
+DO_CHANGE_NAN_HANDLING = True
+DO_NEIGHBOR_HYPERPARAMETERS = True
+DO_EARLY_RETURN = True
 
 def load_data(base_path="../data"):
     """ Load the data in PyTorch Tensor.
@@ -29,17 +36,14 @@ def load_data(base_path="../data"):
     test_data = load_public_test_csv(base_path)
 
     ############### Part B: append metadata to the training matrix #### Significant reduction to the training accuracy
-    load_metadata = True
-    if load_metadata:
+    if DO_LOAD_METADATA:
         student_metadata = load_csv_to_matrix(os.path.join("../data", "student_meta.csv"))
         tsfmd_meta = transform_metadata(student_metadata)
         train_matrix = np.hstack((train_matrix, tsfmd_meta))
 
     zero_train_matrix = train_matrix.copy()
     ############### Part B: changed NaN handling to value of 0.5 #### No significant improvement over test accuracy
-    change_nan_handling = True
-    # Fill in the missing entries to 0.
-    zero_train_matrix[np.isnan(train_matrix)] = 0.5 if change_nan_handling else 0
+    zero_train_matrix[np.isnan(train_matrix)] = 0.5 if DO_CHANGE_NAN_HANDLING else 0
     # Change to Float Tensor for PyTorch.
     zero_train_matrix = torch.FloatTensor(zero_train_matrix)
     train_matrix = torch.FloatTensor(train_matrix)
@@ -155,11 +159,11 @@ def train_without_lamb(model, lr, lamb, train_data, zero_train_data, valid_data,
         else:
             epochs_no_improve += 1  # increment counter if no improvement
 
-        if epochs_no_improve >= 8:
-                print("Early stopping at epoch {}: Validation accuracy has not improved in {} epochs.".format(epoch, 8))
-                break  # Early stopping
-        print("Epoch: {} \tTraining Cost: {:.6f}\t "
-              "Valid Acc: {}".format(epoch, train_loss, valid_acc))
+        ############### Part B: early return #### Significant reduce the training time
+        if DO_EARLY_RETURN and epochs_no_improve >= 8:
+            print("Early stopping at epoch {}   Validation accuracy: {}".format(epoch, valid_acc))
+            break  # Early stopping
+        print("Epoch: {}".format(epoch), end="\r")
 
     # print("For this epoch, the best acc", best_val_acc)
     return train_losses, valid_losses, best_epoch, best_val_acc
@@ -223,11 +227,10 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
         else:
             epochs_no_improve += 1  # increment counter if no improvement
 
-        if epochs_no_improve >= 8:
-                print("Early stopping at epoch {}: Validation accuracy has not improved in {} epochs.".format(epoch, 8))
-                break  # Early stopping
-        print("Epoch: {} \tTraining Cost: {:.6f}\t "
-              "Valid Acc: {}".format(epoch, train_loss, valid_acc))
+        if DO_EARLY_RETURN and epochs_no_improve >= 8:
+            print("Early stopping at epoch {}   Validation accuracy: {}                   ".format(epoch, valid_acc))
+            break  # Early stopping
+        print("Epoch: {}".format(epoch), end="\r")
 
     # print("For this epoch, the best acc", best_val_acc)
     return train_losses, valid_losses, best_epoch, best_val_acc
@@ -296,51 +299,98 @@ def main():
     # Try out 5 different k and select the best k using the             #
     # validation set.                                                   #
     #####################################################################
-    # Set model hyperparameters.
-#------ Part(b) and Part(c)
-     # Set model hyperparameters.
-    k_values = [10, 50, 100, 200, 500]  # Potential k values
-    learning_rates = [0.01, 0.03, 0.05]  # Potential learning rates
-    num_epoch = 100
-    lamb = None  # Regularization parameter, not used in this optimization
+    
+    ############### Part B: append metadata to the training matrix #### Significant reduction to the training accuracy
 
-    best_overall_val_acc = 0
-    best_hyperparameters = {}
-    best_train_losses = None
-    best_valid_losses = None
+    part1_start_timestamp = time.time()
+    if DO_NEIGHBOR_HYPERPARAMETERS: 
+        num_epoch = 100
+        lamb = None  # Regularization parameter, not used in this optimization
 
-    # Starting with a baseline k and learning rate
-    baseline_k = 100  # Example baseline
-    baseline_lr = 0.01  # Example baseline
+        best_overall_val_acc = 0
+        validation_dict = dict()
+        best_hyperparameters = {}
+        best_train_losses = None
+        best_valid_losses = None
 
-    # Neighboring Hyperparameter Optimization for k
-    for k in [baseline_k // 2, baseline_k, baseline_k * 2]:  # Exploring neighbors
-        if k not in k_values: continue  # Skip if the new k value is not in the predefined list
-        # Keeping the learning rate constant at baseline during k optimization
-        model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=k)
-        train_losses, valid_losses, best_epoch, best_val_acc = train_without_lamb(model, baseline_lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
-        if best_val_acc > best_overall_val_acc:
-            best_overall_val_acc = best_val_acc
-            best_hyperparameters = {'k': k, 'learning_rate': baseline_lr, 'lambda': lamb, 'best_epoch': best_epoch}
-            best_train_losses = train_losses
-            best_valid_losses = valid_losses
+        best_k = 40  # start with k and lr in the middle of the grid
+        best_lr = 0.02
+        while 2 <= best_k <= 500 and 0.001 <= best_lr <= 0.5:
+            k_before_explore = best_k
+            lr_before_explore = best_lr
+            exploration_list = [(best_k, best_lr), (best_k // 2, best_lr), (best_k * 2, best_lr), (best_k, best_lr / 2), (best_k, best_lr * 2)]
+            for curr_k, curr_lr in exploration_list:
+                if (curr_k, curr_lr) not in validation_dict:
+                    print(f"Exploring k={curr_k}, lr={curr_lr}")
+                    # Instantiated models
+                    model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=curr_k)
+                    # Training models
+                    train_losses, valid_losses, best_epoch, best_val_acc = train_without_lamb(model, curr_lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+                    validation_dict[(curr_k, curr_lr)] = (train_losses, valid_losses, best_epoch, best_val_acc)
+                else:
+                    print(f"Retrieved k={curr_k}, lr={curr_lr}")
+                    train_losses, valid_losses, best_epoch, best_val_acc = validation_dict[(curr_k, curr_lr)]
+                # Find the maximum acc
+                if best_val_acc > best_overall_val_acc:
+                    best_overall_val_acc = best_val_acc
 
-    # Using the best k found, now optimize learning rate
-    best_k = best_hyperparameters['k']
-    for lr in [baseline_lr / 2, baseline_lr, baseline_lr * 2]:  # Exploring neighbors
-        if lr not in learning_rates: continue  # Skip if the new lr value is not in the predefined list
-        model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=best_k)
-        train_losses, valid_losses, best_epoch, best_val_acc = train_without_lamb(model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
-        if best_val_acc > best_overall_val_acc:
-            best_overall_val_acc = best_val_acc
-            best_hyperparameters.update({'learning_rate': lr, 'best_epoch': best_epoch})  # Update only learning rate and epoch
-            best_train_losses = train_losses
-            best_valid_losses = valid_losses
+                    best_hyperparameters = {
+                                'k': curr_k,
+                                'learning_rate': curr_lr,
+                                'lambda': lamb,
+                                'best_epoch': best_epoch, 
+                                'best_overall_train_acc': best_overall_val_acc
+                            }
+                    best_k = curr_k
+                    best_lr = curr_lr
+                    best_train_losses = train_losses
+                    best_valid_losses = valid_losses
+            # If k and lr didn't change over the process, break
+            if best_k == k_before_explore and best_lr == lr_before_explore:
+                break
+            else:
+                print(f"completed one round of exploration, moving to ({best_k}, {best_lr}).")
+    else:
+        k = [10, 50, 100, 200, 500]
+        # If 8 consecutive accuracies are not as high as the previous one, then stop the gradient descent.
+        # Set optimization hyperparameters.
+        lr = [0.01, 0.03, 0.05]
+        num_epoch = 100
+        lamb = None
+
+        best_overall_val_acc = 0
+        best_hyperparameters = {}
+        best_train_losses = None
+        best_valid_losses = None
+        # Loop for each k value
+        for each_k in k:
+            # Loop for each learning rate
+            for each_lr in lr:
+                    # Instantiated models
+                model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=each_k)
+                        # Training models
+                train_losses, valid_losses, best_epoch, best_val_acc = train_without_lamb(model, each_lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+                    # Find the maximum acc
+                if best_val_acc > best_overall_val_acc:
+                    best_overall_val_acc = best_val_acc
+
+                    best_hyperparameters = {
+                                'k': each_k,
+                                'learning_rate': each_lr,
+                                'lambda': lamb,
+                                'best_epoch': best_epoch, 
+                                'best_overall_train_acc': best_overall_val_acc
+                            }
+                    best_train_losses = train_losses
+                    best_valid_losses = valid_losses
+    
+    part1_end_timestamp = time.time()
 
     # Report best hyperparameters found
     print("Best Hyperparameters found through Neighboring Optimization:")
     for key, value in best_hyperparameters.items():
-        print(f"{key}: {value}")
+        print(f"\t{key}: {value}")
+    print(f"Time taken looking for k and lr: {part1_end_timestamp - part1_start_timestamp} seconds.")
 
 
     model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=best_hyperparameters['k'])
@@ -352,22 +402,24 @@ def main():
     
     plot_metrics(best_train_losses, best_valid_losses, best_epoch)
 #--------------- Part (d)
+    part2_start_timestamp = time.time()
     k = best_hyperparameters['k']
     # If 8 consecutive accuracies are not as high as the previous one, then stop the gradient descent.
     # Set optimization hyperparameters.
     lr = best_hyperparameters['learning_rate']
     num_epoch = best_hyperparameters['best_epoch']
-    lamb = [0.001, 0.01, 0.1, 1]
+    lamb = [0, 0.0001, 0.0003, 0.001, 0.003, 0.01]
 
     best_overall_val_acc = 0
     b_hyperparameters = {}
 
     for each_lamb in lamb:
-                # Instantiated models
+        print(f"Exploring lamb: {each_lamb}")
+        # Instantiated models
         model = AutoEncoder(num_question=zero_train_matrix.shape[1], k=k)
-                    # Training models
+        # Training models
         train_losses, valid_losses, best_epoch, best_val_acc = train(model, lr, each_lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
-                # Find the maximum acc
+        # Find the maximum acc
         if best_val_acc > best_overall_val_acc:
             best_overall_val_acc = best_val_acc
 
@@ -378,12 +430,14 @@ def main():
                             'best_epoch': num_epoch, 
                             'best_overall_train_acc': best_overall_val_acc
                         }
+    part2_end_timestamp = time.time()
 
     # Report the best hyperparameters
     print("report for part d")
     print("Best Hyperparameters:")
     for key, value in b_hyperparameters.items():
-        print(f"{key}: {value}")
+        print(f"\t{key}: {value}")
+    print(f"Time taken looking for lambda: {part2_end_timestamp - part2_start_timestamp} seconds.")
     
     best_num_epoch = b_hyperparameters['best_epoch']
     lamb = b_hyperparameters['lambda']
