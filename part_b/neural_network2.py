@@ -1,6 +1,5 @@
 from utils import *
 from torch.autograd import Variable
-from scipy.sparse import hstack
 from metadata_load import *
 
 import torch.nn as nn

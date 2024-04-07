@@ -1,5 +1,6 @@
 from utils import *
 from torch.autograd import Variable
+from metadata_load import *
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,9 +28,18 @@ def load_data(base_path="../data"):
     valid_data = load_valid_csv(base_path)
     test_data = load_public_test_csv(base_path)
 
+    ############### Part B: append metadata to the training matrix #### Significant reduction to the training accuracy
+    load_metadata = True
+    if load_metadata:
+        student_metadata = load_csv_to_matrix(os.path.join("../data", "student_meta.csv"))
+        tsfmd_meta = transform_metadata(student_metadata)
+        train_matrix = np.hstack((train_matrix, tsfmd_meta))
+
     zero_train_matrix = train_matrix.copy()
+    ############### Part B: changed NaN handling to value of 0.5 #### No significant improvement over test accuracy
+    change_nan_handling = True
     # Fill in the missing entries to 0.
-    zero_train_matrix[np.isnan(train_matrix)] = 0
+    zero_train_matrix[np.isnan(train_matrix)] = 0.5 if change_nan_handling else 0
     # Change to Float Tensor for PyTorch.
     zero_train_matrix = torch.FloatTensor(zero_train_matrix)
     train_matrix = torch.FloatTensor(train_matrix)
